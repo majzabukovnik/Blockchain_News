@@ -10,6 +10,7 @@ using System.Diagnostics.Contracts;
 using System.Security.Cryptography;
 using System.Globalization;
 using SshNet.Security.Cryptography;
+using System.Runtime.CompilerServices;
 
 namespace News_Blockchain
 {
@@ -244,19 +245,43 @@ namespace News_Blockchain
         /// <param name="pubkey"></param>
         /// <param name="senderPublickKey"></param>
         /// <returns>true or false</returns>
-        private bool CheckTransactionSignature(Transacation_Input transaction, Transacation_Output transaction_Output, string pubkey, string senderPublickKey, string signature)
+        private bool CheckTransactionSignature(Transacation_Input transaction, Transacation_Output transaction_Output, string pubkey, string senderPublickKey)
         {
             string pubkeyCoppy = pubkey;
 
             string pubkeyHash = Helpers.ComputeSHA256Hash(pubkeyCoppy, 2);
             string publickKeyHash = Helpers.ComputeSHA256Hash(senderPublickKey, 2);
-            string signatureHash = Helpers.ComputeSHA256Hash(transaction.stringSignature, 2);
+
+            byte[] data = Encoding.ASCII.GetBytes("message");
+            byte[] hash = System.Security.Cryptography.SHA256.Create().ComputeHash(data);
+
+            RSAParameters sharedParameters;
+            byte[] signedHash;
+            //generate signature
+            using (RSA rsa = RSA.Create())
+            {
+                sharedParameters = rsa.ExportParameters(false);
+
+                RSAPKCS1SignatureFormatter rsaFormatter = new(rsa);
+                rsaFormatter.SetHashAlgorithm(nameof(Helpers.ComputeSHA256Hash));
+
+                signedHash = rsaFormatter.CreateSignature(hash);
+            }
+
+            //verify signature 
+            using (RSA rsa = RSA.Create())
+            {
+                rsa.ImportParameters(sharedParameters);
+
+                RSAPKCS1SignatureDeformatter rsaDeformatter = new(rsa);
+                rsaDeformatter.SetHashAlgorithm(nameof(Helpers.ComputeSHA256Hash));
+
+                if (!rsaDeformatter.VerifySignature(hash, signedHash))
+                    return false;
+            }
 
             if (pubkeyHash != publickKeyHash)
-                return false;
-
-           // if (pubkeyHash != privateKeyHash)
-             //   return false;
+             return false;
 
             return true;
         }
@@ -264,16 +289,20 @@ namespace News_Blockchain
         /// <summary>
         /// Function checks if block height of a coinbase transaction is greater than 100
         /// </summary>
-        /// <param name="height"></param>
+        /// /// <param name="block">block that contains coinbase trx</param>
+        /// /// <param name="trxHeight">blocks height</param>
+        /// <param name="currentHeight">current height</param>
         /// <returns>ture of false</returns>
-        private bool CoinbaseTransactionMaturity(Block block, int height, int currentHeight)
+        private bool CoinbaseTransactionMaturity(Block block, int trxHeight, int currentHeight)
         {
-            if (CheckCoinbaseTransaction(block, height) == true)
+            if (!CheckCoinbaseTransaction(block, trxHeight))
+                return false;
 
-            if ((currentHeight - height) < 100)
+            if (currentHeight - trxHeight < 100)
                 return false;
 
             return true;
         }
+
     }
 }
